@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+
+import polib
+import os
+import sys
+
+if len(sys.argv) < 3:
+    print("Error: missing POT_FILE or PO_FILE\n")
+    print("Usage: {} POT_FILE PO_FILE\n".format(os.path.basename(sys.argv[0])), file=sys.stderr)
+    sys.exit(0)
+
+current = polib.pofile(sys.argv[1]) # POT file
+translation = polib.pofile(sys.argv[2]) # PO file
+
+currentStrings = []
+for msg in current:
+    currentStrings.append(msg.msgid)
+
+print("There are {} msgIds in the current source code.\n".format(len(currentStrings)))
+
+print("String that are not found in source code but in the PO file:\n\n---\n")
+
+outdated = 0
+for msg in translation:
+    if currentStrings.count(msg.msgid) <= 0:
+        outdated += 1
+        print("\"{}\"\n".format(msg.msgid))
+
+print("---\n\nTotally {} outdated translations.".format(outdated))
