@@ -1,0 +1,193 @@
+#!/bin/bash
+
+# polyfill of realpath
+if ! which realpatha 2>&1 >/dev/null; then
+    function realpath {
+        [[ $1 = /* ]] && echo "$1" || echo "$PWD/${1#./}"
+    }
+fi
+
+# generates a pot file from the given information
+#
+# $1      is the package name.
+# $2      is the package version.
+# $3      is the target POT file full path.
+# $4...$n are the pattern to all source code file(s) (e.g. *.php).
+function genTemplate {
+
+    PACKAGE_NAME=$1
+    shift
+    PACKAGE_VERSION=$1
+    shift
+    POT=$1
+    shift
+    SOURCE=$1
+    shift
+
+    ORGLPWD=$(pwd)
+    POT=$(realpath "$POT")
+
+    # extract raw text from source file
+    cd "$SOURCE"
+    xgettext \
+        --package-name="$PACKAGE_NAME" \
+        --package-version="$PACKAGE_VERSION" \
+        --language=PHP \
+        --from-code=UTF-8 \
+        --add-comments=L10N \
+        --keyword=translate:1 \
+        --keyword=translateN:1,2 \
+        --keyword=__:1 \
+        --keyword=__n:1,2 \
+        --indent \
+        -o "$POT" \
+        $(find . -type f -name "*.php" ! -path "./lib/*" ! -path "./tests/*" ! -path "./vendor/*" ! -path "./.git/*" | sed 's/ /*/g')
+
+    cd "$ORGLPWD"
+
+    if [ ! -f "$POT" ]; then
+        echo "Error: Unable to find or generate template file \"$POT\" from source code in \"$SOURCE\"."
+        echo
+        exit 1
+    fi
+
+    # set UTF-8 as default charset
+    sed -i \
+        's/charset=CHARSET/charset=UTF-8/' \
+        "$POT"
+}
+
+# create or update existing PO file with
+# reference to a new POT template file.
+#
+# $1    is the referencing new POT file.
+# $2    is the old PO file.
+# $3    if set, is the new PO file to create. If not set,
+#       the old PO will be updated.
+function createOrUpdatePO {
+
+    POT_FILE=$1
+    shift
+    INPUT_FILE=$1
+    shift
+    OUTPUT_FILE=$1
+    shift
+
+    if [ "$OUTPUT_FILE" != "" ]; then
+        # generate output file for the result
+        msgmerge \
+            --indent \
+            --no-fuzzy-matching \
+            --force-po \
+            --strict \
+            --output-file="$OUTPUT_FILE" \
+            "$INPUT_FILE" \
+            "$POT_FILE"
+    else
+        # update input file
+        # with numbered backup files
+        msgmerge \
+            --indent \
+            --no-fuzzy-matching \
+            --force-po \
+            --strict \
+            --update \
+            --backup=numbered \
+            "$INPUT_FILE" \
+            "$POT_FILE"
+
+        # update $OUTPUT_FILE to be re-formatted.
+        OUTPUT_FILE="$INPUT_FILE"
+    fi
+
+    # ensure an empty line between sections.
+    perl -0777 -i.original -pe 's/"(\n\#\n)/"\n$1/g' $OUTPUT_FILE && rm -f "$OUTPUT_FILE.original"
+}
+
+# return the usage message.
+#
+# $1   the relative or absolute path to this script.
+function usage {
+    NAME=$(basename $1)
+
+    echo "Usage: $NAME [OPTIONS] -i INPUT_FILE -o OUTPUT_FILE"
+    echo
+    echo "Required variables"
+    echo
+    echo " -i INPUT_FILE   Old PO file for reference."
+    echo " -o OUTPUT_FILE  New PO file to generate."
+    echo
+    echo "Options"
+    echo
+    echo "  -n NAME      Name of the software (default: GibbonEdu)"
+    echo "  -s SOURCE    Name of the software (default: ../)"
+    echo "  -t TEMPLATE  Path to the intermediate POT file (default: ./gibbon.pot)"
+    echo "  -v VERSION   Version string of the software (default: v18.0.00)."
+    echo
+}
+
+#
+# main
+#
+
+# Variables defaults.
+NAME="GibbonEdu"
+VERSION="v18.0.00"
+TEMPLATE="./gibbon.pot"
+INPUT_FILE=""
+OUTPUT_FILE="./output.po"
+SOURCE="../"
+
+# Read variables from arguments.
+while getopts "i:o:n:s:t:v:h" arg; do
+    case $arg in
+        i)
+            INPUT_FILE="$OPTARG"
+            ;;
+        o)
+            OUTPUT_FILE="$OPTARG"
+            ;;
+        n)
+            NAME="$OPTARG"
+            ;;
+        s)
+            SOURCE="$OPTARG"
+            ;;
+        t)
+            TEMPLATE="$OPTARG"
+            ;;
+        h)
+            usage $0
+            exit 0
+            ;;
+    esac
+done
+
+# check require variables
+if [ -z $INPUT_FILE ]; then
+    echo "Error: INPUT_FILE not set"
+    echo
+    usage $0
+    exit 1
+fi
+if [ -z $OUTPUT_FILE ]; then
+    echo "Error: OUTPUT_FILE not set"
+    echo
+    usage $0
+    exit 1
+fi
+
+# generate template file, if needed.
+if [ ! -f "$TEMPLATE" ]; then
+    genTemplate \
+        "$NAME" \
+        "$VERSION" \
+        "$TEMPLATE" \
+        "$SOURCE"
+fi
+
+# create new PO file from input and POT.
+createOrUpdatePO \
+    "$TEMPLATE" \
+    "$INPUT_FILE" \
+    "$OUTPUT_FILE"
