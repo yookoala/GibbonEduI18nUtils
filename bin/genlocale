@@ -156,6 +156,9 @@ while getopts "i:o:n:s:t:v:h" arg; do
         t)
             TEMPLATE="$OPTARG"
             ;;
+        v)
+            VERSION="$OPTARG"
+            ;;
         h)
             usage $0
             exit 0
